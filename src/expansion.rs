@@ -21,28 +21,34 @@ const FIELDNAME: &str = "inner";
 /// already present in local storage.
 pub fn add_enum_impls(enum_def: EnumDispatchItem, traitdef: syn::ItemTrait) -> proc_macro2::TokenStream {
     let traitname = traitdef.ident;
-    let traitfns = traitdef.items;
+    let trait_items = traitdef.items;
 
-    let trait_impl = format!("impl {} for {} {{ }}", traitname, enum_def.ident);
-    let mut trait_impl: syn::ItemImpl = syn::parse_str(trait_impl.as_str()).unwrap();
-    trait_impl.unsafety = traitdef.unsafety;
-    trait_impl.generics = traitdef.generics;
+    let mut impls = proc_macro2::TokenStream::new();
 
     let variants: Vec<&EnumDispatchVariant> = enum_def.variants.iter().collect();
 
-    for trait_fn in traitfns {
-        trait_impl
-            .items
-            .push(create_trait_match(trait_fn, &enum_def.ident, &variants));
-    }
-
     let from_impls = generate_from_impls(&enum_def.ident, &variants);
-
-    let mut impls = proc_macro2::TokenStream::new();
     for from_impl in from_impls.iter() {
         from_impl.to_tokens(&mut impls);
     }
-    trait_impl.to_tokens(&mut impls);
+
+    let fn_impls: Vec<syn::ImplItem> = trait_items
+        .iter()
+        .filter_map(|trait_item| create_trait_match(trait_item, &enum_def.ident, &variants))
+        .collect();
+    // If we are missing some trait items then we can't satisfy the trait, but that doesn't mean we
+    // should give up! The non-static methods we can provide are still useful!
+    let traits_impl = if fn_impls.len() == trait_items.len() {
+        format!("impl {} for {} {{ }}", traitname, enum_def.ident)
+    } else {
+        format!("impl {} {{ }}", enum_def.ident)
+    };
+    let mut traits_impl: syn::ItemImpl = syn::parse_str(traits_impl.as_str()).unwrap();
+    traits_impl.unsafety = traitdef.unsafety;
+    traits_impl.generics = traitdef.generics;
+    traits_impl.items.extend(fn_impls.into_iter());
+    traits_impl.to_tokens(&mut impls);
+
     impls
 }
 
@@ -82,6 +88,8 @@ fn extract_fn_args(
     MethodType,
     syn::punctuated::Punctuated<syn::Expr, syn::token::Comma>,
 ) {
+    // TODO we need to detect methods with signatures dependent on trait member items and skip
+    // them! This will avoid a confusing error on the enum implementation we provide.
     let mut method_type = MethodType::Static;
     let new_args: Vec<syn::Ident> = trait_args
         .iter()
@@ -112,31 +120,24 @@ fn extract_fn_args(
 
 /// Creates a method call that can be used in the match arms of all non-static method
 /// implementations.
-fn create_trait_fn_call(trait_method: &syn::TraitItemMethod) -> syn::ExprCall {
+fn create_trait_fn_call(trait_method: &syn::TraitItemMethod) -> Option<syn::ExprCall> {
     let trait_args = trait_method.to_owned().sig.decl.inputs;
     let (method_type, args) = extract_fn_args(trait_args);
 
-    syn::ExprCall {
-        attrs: vec![],
-        func: {
-            if let MethodType::Static = method_type {
-                // Trait calls can be created when the inner type is known, like this:
-                //
-                // syn::parse_quote! { #type::#trait_method_name }
-                //
-                // However, without a concrete enum to match on, it's impossible to tell
-                // which variant to call.
-                unimplemented!(
-                    "Static methods cannot be enum_dispatched (no self argument to match on)"
-                );
-            } else {
+    match method_type {
+        // Concrete enum to match on, it's impossible to tell
+        // which variant to call.
+        MethodType::Static => None,
+        _ => Some(syn::ExprCall {
+            attrs: vec![],
+            func: {
                 let fieldname = syn::Ident::new(FIELDNAME, trait_method.span());
                 let trait_method_name = &trait_method.sig.ident;
                 Box::new(syn::parse_quote! { #fieldname.#trait_method_name })
-            }
-        },
-        paren_token: Default::default(),
-        args,
+            },
+            paren_token: Default::default(),
+            args,
+        }),
     }
 }
 
@@ -146,8 +147,8 @@ fn create_match_expr(
     trait_method: &syn::TraitItemMethod,
     enum_name: &syn::Ident,
     enumvariants: &[&EnumDispatchVariant],
-) -> syn::Expr {
-    let trait_fn_call = create_trait_fn_call(trait_method);
+) -> Option<syn::Expr> {
+    let trait_fn_call = create_trait_fn_call(trait_method)?;
 
     // Creates a Vec containing a match arm for every enum variant
     let match_arms = enumvariants
@@ -170,7 +171,7 @@ fn create_match_expr(
         }}).collect();
 
     // Creates the match expression
-    syn::Expr::from(syn::ExprMatch {
+    Some(syn::Expr::from(syn::ExprMatch {
         attrs: vec![],
         match_token: Default::default(),
         expr: Box::new(syn::Expr::from(syn::ExprPath {
@@ -190,20 +191,20 @@ fn create_match_expr(
         })),
         brace_token: Default::default(),
         arms: match_arms,
-    })
+    }))
 }
 
 /// Builds an implementation of the given trait function for the given enum type.
 fn create_trait_match(
-    trait_item: syn::TraitItem,
+    trait_item: &syn::TraitItem,
     enum_name: &syn::Ident,
     enumvariants: &[&EnumDispatchVariant],
-) -> syn::ImplItem {
+) -> Option<syn::ImplItem> {
     match trait_item {
         syn::TraitItem::Method(trait_method) => {
-            let match_expr = create_match_expr(&trait_method, enum_name, enumvariants);
+            let match_expr = create_match_expr(&trait_method, enum_name, enumvariants)?;
 
-            syn::ImplItem::Method(syn::ImplItemMethod {
+            Some(syn::ImplItem::Method(syn::ImplItemMethod {
                 attrs: vec![syn::Attribute {
                     pound_token: Default::default(),
                     style: syn::AttrStyle::Outer,
@@ -213,13 +214,19 @@ fn create_trait_match(
                 }],
                 vis: syn::Visibility::Inherited,
                 defaultness: None,
-                sig: trait_method.sig,
+                sig: trait_method.sig.clone(),
                 block: syn::Block {
                     brace_token: Default::default(),
                     stmts: vec![syn::Stmt::Expr(match_expr)],
                 },
-            })
+            }))
         }
-        _ => panic!("Unsupported trait item"),
+        // It's not possible to resolve to these types of things from the enum; they are static
+        // properties of the trait implementations which means when we refer to them we don't have
+        // a Self type to work with.
+        syn::TraitItem::Const(_) => None,
+        syn::TraitItem::Type(_) => None,
+        syn::TraitItem::Macro(_) => None,
+        syn::TraitItem::Verbatim(_) => None,
     }
 }
