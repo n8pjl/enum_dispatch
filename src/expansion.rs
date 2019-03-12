@@ -119,14 +119,14 @@ fn extract_fn_args(
 }
 
 /// Creates a method call that can be used in the match arms of all non-static method
-/// implementations.
+/// implementations. Return is None when invoked on a static member function.
 fn create_trait_fn_call(trait_method: &syn::TraitItemMethod) -> Option<syn::ExprCall> {
     let trait_args = trait_method.to_owned().sig.decl.inputs;
     let (method_type, args) = extract_fn_args(trait_args);
 
     match method_type {
-        // Concrete enum to match on, it's impossible to tell
-        // which variant to call.
+        // We don't have a concrete enum to match on so it's impossible to tell which variant to
+        // dispatch to.
         MethodType::Static => None,
         _ => Some(syn::ExprCall {
             attrs: vec![],
@@ -142,7 +142,8 @@ fn create_trait_fn_call(trait_method: &syn::TraitItemMethod) -> Option<syn::Expr
 }
 
 /// Constructs a match expression that matches on all variants of the specified enum, creating a
-/// binding to their single field and calling the provided trait method on each.
+/// binding to their single field and calling the provided trait method on each. Returns None when
+/// the member function is static.
 fn create_match_expr(
     trait_method: &syn::TraitItemMethod,
     enum_name: &syn::Ident,
@@ -194,7 +195,9 @@ fn create_match_expr(
     }))
 }
 
-/// Builds an implementation of the given trait function for the given enum type.
+/// Builds an implementation of the given trait item to attach to the enum type. It only makes
+/// sense to propagate member function calls with a self parameter to the enum, so all other trait
+/// item types will return None.
 fn create_trait_match(
     trait_item: &syn::TraitItem,
     enum_name: &syn::Ident,
