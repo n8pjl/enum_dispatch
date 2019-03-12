@@ -32,13 +32,13 @@ pub fn add_enum_impls(enum_def: EnumDispatchItem, traitdef: syn::ItemTrait) -> p
         from_impl.to_tokens(&mut impls);
     }
 
-    let fn_impls: Vec<syn::ImplItem> = trait_items
+    let item_impls: Vec<Option<syn::ImplItem>> = trait_items
         .iter()
-        .filter_map(|trait_item| create_trait_match(trait_item, &enum_def.ident, &variants))
+        .map(|trait_item| create_trait_match(trait_item, &enum_def.ident, &variants))
         .collect();
     // If we are missing some trait items then we can't satisfy the trait, but that doesn't mean we
     // should give up! The non-static methods we can provide are still useful!
-    let traits_impl = if fn_impls.len() == trait_items.len() {
+    let traits_impl = if item_impls.iter().all(|item_impl| item_impl.is_some()) {
         format!("impl {} for {} {{ }}", traitname, enum_def.ident)
     } else {
         format!("impl {} {{ }}", enum_def.ident)
@@ -46,7 +46,7 @@ pub fn add_enum_impls(enum_def: EnumDispatchItem, traitdef: syn::ItemTrait) -> p
     let mut traits_impl: syn::ItemImpl = syn::parse_str(traits_impl.as_str()).unwrap();
     traits_impl.unsafety = traitdef.unsafety;
     traits_impl.generics = traitdef.generics;
-    traits_impl.items.extend(fn_impls.into_iter());
+    traits_impl.items.extend(item_impls.into_iter().flatten());
     traits_impl.to_tokens(&mut impls);
 
     impls
