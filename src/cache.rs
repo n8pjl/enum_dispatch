@@ -123,5 +123,8 @@ pub fn conversion_impls_def_by_enum(item: &syn::Ident) -> bool {
 }
 
 pub fn remove_entry(defname: &::proc_macro2::Ident) {
-    deferredLinks.lock().unwrap().remove_entry(&defname.to_string());
+    DEFERRED_LINKS
+        .lock()
+        .unwrap()
+        .remove_entry(&defname.to_string());
 }
