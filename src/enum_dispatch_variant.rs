@@ -12,7 +12,7 @@ use quote::TokenStreamExt;
 use crate::filter_attrs::FilterAttrs;
 
 /// A structure that can be used to store syntax information about an `enum_dispatch` enum variant.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct EnumDispatchVariant {
     pub attrs: Vec<syn::Attribute>,
     pub ident: syn::Ident,
@@ -24,7 +24,6 @@ impl syn::parse::Parse for EnumDispatchVariant {
     fn parse(input: syn::parse::ParseStream) -> syn::parse::Result<Self> {
         let attrs = input.call(syn::Attribute::parse_outer)?;
         let ident: syn::Ident = input.parse()?;
-        println!("EnumDispatchVariant::parse()\n\t{:?}\n\t{}\n", attrs, ident);
         let ty = if input.peek(syn::token::Brace) {
             unimplemented!("enum_dispatch variants cannot have braces for arguments");
         } else if input.peek(syn::token::Paren) {

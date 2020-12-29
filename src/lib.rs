@@ -398,19 +398,11 @@ pub fn enum_dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
                     }
                     syn::PathArguments::Parenthesized(_) => panic!("Expected angle bracketed generic arguments, found parenthesized arguments"),
                 };
-                println!("attr_name = {}", attr_name);
-                println!("attr_generics = {}", attr_generics.len());
                 match &mut new_block {
                     attributed_parser::ParsedItem::Trait(traitdef) => {
-                        println!("new_block = Trait");
                         cache::defer_link((attr_name, attr_generics.len()), (&traitdef.ident, traitdef.generics.type_params().count()))
                     }
                     attributed_parser::ParsedItem::EnumDispatch(enumdef) => {
-                        println!("new_block = EnumDispatch");
-                        println!("{}", enumdef.clone().into_token_stream().to_string());
-                        println!("enumdef.ident = {:?}", enumdef.ident);
-                        println!("enumdef.consts = {:?}", enumdef.consts);
-                        println!("args = {:?}", args);
                         enumdef.consts = args.associated_consts.iter().map(|(name, (ty, value))| syn::ImplItemConst{
                             attrs: Vec::new(),
                             vis: syn::Visibility::Inherited,
@@ -444,7 +436,6 @@ pub fn enum_dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
             item
         }
         attributed_parser::ParsedItem::EnumDispatch(enumdef) => {
-            println!("--- expanded enumdef consts = {:?}", enumdef.consts);
             cache::cache_enum_dispatch(enumdef.clone());
             syn::ItemEnum::from(enumdef.to_owned())
                 .into_token_stream()
@@ -464,7 +455,6 @@ pub fn enum_dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
         attributed_parser::ParsedItem::EnumDispatch(enumdef) => {
-            println!("new_block = EnumDispatch\n    consts = {:?}", enumdef.consts);
             let additional_traits =
                 cache::fulfilled_by_enum(&enumdef.ident, enumdef.generics.type_params().count());
             for traitdef in additional_traits {

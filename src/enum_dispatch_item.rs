@@ -14,7 +14,7 @@ use crate::filter_attrs::FilterAttrs;
 /// A structure that can be used to store syntax information about an `enum_dispatch` enum.
 ///
 /// Mostly identical to `syn::ItemEnum`.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct EnumDispatchItem {
     pub attrs: Vec<syn::Attribute>,
     pub vis: syn::Visibility,

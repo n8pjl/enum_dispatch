@@ -34,22 +34,17 @@ impl EnumDispatchTraitArgs {
 
 impl syn::parse::Parse for EnumDispatchTraitArgs {
     fn parse(input: &syn::parse::ParseBuffer) -> Result<Self, syn::Error> {
-        println!("  EnumDispatchTraitArgs::parse");
         let mut args = Self::new();
         let content = match syn::group::parse_parens(input) {
             Ok(v) => v.content,
             Err(_) => return Ok(args)
         };
-        println!("    content = {}", content);
         while !content.is_empty() {
             let name: syn::Ident = content.parse()?;
-            println!("      name = {}", name);
             let _: syn::token::Colon = content.parse()?;
             let ty: syn::Type = content.parse()?;
-            println!("      type = {:?}", ty);
             let _: syn::token::Eq = content.parse()?;
             let value: ConstValue = content.parse()?;
-            println!("      value = {:?}", value);
             let _: Option<syn::token::Comma> = content.parse()?;
             args.associated_consts.insert(name, (ty, value));
         }
@@ -64,18 +59,15 @@ pub struct EnumDispatchArgList {
 
 impl syn::parse::Parse for EnumDispatchArgList {
     fn parse(input: &syn::parse::ParseBuffer) -> Result<Self, syn::Error> {
-        println!("EnumDispatchArgList::parse");
         let mut args = Self{
             traits: HashMap::new()
         };
         while !input.is_empty() {
             let trait_name: syn::Path = input.parse()?;
-            println!("  trait_name = {:?}", trait_name);
             let trait_args: EnumDispatchTraitArgs = input.parse()?;
             let _: Option<syn::Token![ , ]> = input.parse()?;
             args.traits.insert(trait_name, trait_args);
         }
-        println!("args = {:?}", args);
         Ok(args)
     }
 }
