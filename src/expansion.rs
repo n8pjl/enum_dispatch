@@ -38,14 +38,21 @@ pub fn add_enum_impls(
 
     let variants: Vec<&EnumDispatchVariant> = enum_def.variants.iter().collect();
 
+    for impl_const in &enum_def.consts {
+        trait_impl.items.push(syn::ImplItem::Const(impl_const.clone()));
+    }
+
     for trait_fn in traitfns {
-        trait_impl.items.push(create_trait_match(
+        match create_trait_match(
             trait_fn,
             &trait_type_generics,
             &traitname,
             &enum_def.ident,
             &variants,
-        ));
+        ) {
+            Some(v) => trait_impl.items.push(v),
+            None => ()
+        };
     }
 
     let mut impls = proc_macro2::TokenStream::new();
@@ -314,7 +321,7 @@ fn create_trait_match(
     trait_name: &syn::Ident,
     enum_name: &syn::Ident,
     enumvariants: &[&EnumDispatchVariant],
-) -> syn::ImplItem {
+) -> Option<syn::ImplItem> {
     match trait_item {
         syn::TraitItem::Method(trait_method) => {
             let match_expr = create_match_expr(
@@ -335,7 +342,7 @@ fn create_trait_match(
                 tokens: proc_macro::TokenStream::new().into(),
             });
 
-            syn::ImplItem::Method(syn::ImplItemMethod {
+            Some(syn::ImplItem::Method(syn::ImplItemMethod {
                 attrs: impl_attrs,
                 vis: syn::Visibility::Inherited,
                 defaultness: None,
@@ -344,8 +351,9 @@ fn create_trait_match(
                     brace_token: Default::default(),
                     stmts: vec![syn::Stmt::Expr(match_expr)],
                 },
-            })
-        }
+            }))
+        },
+        syn::TraitItem::Const(trait_const) => None,
         _ => panic!("Unsupported trait item"),
     }
 }

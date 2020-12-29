@@ -4,7 +4,7 @@ use crate::enum_dispatch_item;
 use crate::proc_macro;
 
 /// Enumerates all successful results of parsing an `enum_dispatch` annotated syntax block.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ParsedItem {
     Trait(syn::ItemTrait),
     EnumDispatch(enum_dispatch_item::EnumDispatchItem),

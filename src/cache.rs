@@ -56,6 +56,7 @@ pub fn cache_trait(item: syn::ItemTrait) {
 /// Store an enum definition for future reference.
 pub fn cache_enum_dispatch(item: enum_dispatch_item::EnumDispatchItem) {
     let uid = UniqueItemId::new(item.ident.to_string(), item.generics.type_params().count());
+    println!("item =\n{}", item.clone().into_token_stream().to_string());
     ENUM_DEFS
         .lock()
         .unwrap()

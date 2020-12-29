@@ -6,39 +6,76 @@ use std::collections::HashMap;
 #[derive(Debug)]
 pub enum ConstValue {
     Literal(syn::Lit),
-    Ident(syn::Path)
+    Identifier(syn::Path)
 }
 
 impl syn::parse::Parse for ConstValue {
     fn parse(input: &syn::parse::ParseBuffer) -> Result<Self, syn::Error> {
         let value = match input.parse() {
             Ok(v) => Self::Literal(v),
-            Err(_) => Self::Ident(input.parse()?)
+            Err(_) => Self::Identifier(input.parse()?)
         };
         Ok(value)
     }
 }
 
 #[derive(Debug)]
+pub struct EnumDispatchTraitArgs {
+    pub associated_consts: HashMap<syn::Ident, (syn::Type, ConstValue)>,
+}
+
+impl EnumDispatchTraitArgs {
+    pub fn new() -> Self {
+        Self{
+            associated_consts: HashMap::new()
+        }
+    }
+}
+
+impl syn::parse::Parse for EnumDispatchTraitArgs {
+    fn parse(input: &syn::parse::ParseBuffer) -> Result<Self, syn::Error> {
+        println!("  EnumDispatchTraitArgs::parse");
+        let mut args = Self::new();
+        let content = match syn::group::parse_parens(input) {
+            Ok(v) => v.content,
+            Err(_) => return Ok(args)
+        };
+        println!("    content = {}", content);
+        while !content.is_empty() {
+            let name: syn::Ident = content.parse()?;
+            println!("      name = {}", name);
+            let _: syn::token::Colon = content.parse()?;
+            let ty: syn::Type = content.parse()?;
+            println!("      type = {:?}", ty);
+            let _: syn::token::Eq = content.parse()?;
+            let value: ConstValue = content.parse()?;
+            println!("      value = {:?}", value);
+            let _: Option<syn::token::Comma> = content.parse()?;
+            args.associated_consts.insert(name, (ty, value));
+        }
+        Ok(args)
+    }
+}
+
+#[derive(Debug)]
 pub struct EnumDispatchArgList {
-    pub trait_name: syn::Path,
-    pub associated_consts: HashMap<syn::Ident, ConstValue>,
+    pub traits: HashMap<syn::Path, EnumDispatchTraitArgs>,
 }
 
 impl syn::parse::Parse for EnumDispatchArgList {
     fn parse(input: &syn::parse::ParseBuffer) -> Result<Self, syn::Error> {
-        let mut args = EnumDispatchArgList{
-            trait_name: input.parse()?,
-            associated_consts: HashMap::new()
+        println!("EnumDispatchArgList::parse");
+        let mut args = Self{
+            traits: HashMap::new()
         };
-        let _: Option<syn::Token![ , ]> = input.parse()?;
         while !input.is_empty() {
-            let key: syn::Ident = input.parse()?;
-            let _: syn::Token![ = ] = input.parse()?;
-            let value: ConstValue = input.parse()?;
+            let trait_name: syn::Path = input.parse()?;
+            println!("  trait_name = {:?}", trait_name);
+            let trait_args: EnumDispatchTraitArgs = input.parse()?;
             let _: Option<syn::Token![ , ]> = input.parse()?;
-            args.associated_consts.insert(key, value);
+            args.traits.insert(trait_name, trait_args);
         }
+        println!("args = {:?}", args);
         Ok(args)
     }
 }
