@@ -353,7 +353,7 @@ fn create_trait_match(
                 },
             }))
         },
-        syn::TraitItem::Const(trait_const) => None,
+        syn::TraitItem::Const(_) => None,
         _ => panic!("Unsupported trait item"),
     }
 }

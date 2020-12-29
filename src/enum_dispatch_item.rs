@@ -37,14 +37,7 @@ impl syn::parse::Parse for EnumDispatchItem {
         let where_clause = input.parse()?;
         let content;
         let brace_token = syn::braced!(content in input);
-        let mut consts = Vec::new();
-        /*
-        while let Ok(v) = content.parse_terminated::<syn::ImplItemConst, syn::token::Semi>(syn::ImplItemConst::parse) {
-            for item in v.into_iter() {
-                consts.push(item);
-            }
-        }
-        */
+        let consts = Vec::new();
         let variants = content.parse_terminated(EnumDispatchVariant::parse)?;
         Ok(Self {
             attrs,
