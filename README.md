@@ -154,6 +154,24 @@ The names of corresponding generic parameters should match between the definitio
 
 [This example](tests/complex_generics.rs) demonstrates this in more detail.
 
+### deref variants
+
+`enum_dispatch` can handle `Deref` variants but due to limitations in macro parsing you need to add an
+attribute to your enum variant for it to work.
+
+```rust
+#[enum_dispatch]
+enum MyTypes {
+    TypeA,
+    #[enum_dispatch(deref)]
+    TypeB(Rc<TypeB>),
+}
+```
+generates match arms that `Derer::deref` before calling the trait method
+```rust
+MyTypes::TypeB(inner) => MyTrait::method(Deref::deref(inner)),
+```
+
 ## troubleshooting
 
 ### no impls created?
