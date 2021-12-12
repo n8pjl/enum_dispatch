@@ -221,13 +221,20 @@ fn create_trait_fn_call(
     trait_method: &syn::TraitItemMethod,
     trait_generics: &syn::TypeGenerics,
     trait_name: &syn::Ident,
+    deref: bool,
 ) -> syn::ExprCall {
     let trait_args = trait_method.to_owned().sig.inputs;
     let (method_type, mut args) = extract_fn_args(trait_args);
 
+    let field_name = plain_identifier_expr(syn::Ident::new(FIELDNAME, trait_method.span()));
+    let explicit_self_arg = if !deref {
+        field_name
+    } else {
+        // if our variant is behind a Deref, deref it
+        syn::parse_quote! { std::ops::Deref::deref(#field_name) }
+    };
     // Insert FIELDNAME at the beginning of the argument list for UCFS-style method calling
-    let explicit_self_arg = syn::Ident::new(FIELDNAME, trait_method.span());
-    args.insert(0, plain_identifier_expr(explicit_self_arg));
+    args.insert(0, explicit_self_arg);
 
     syn::ExprCall {
         attrs: vec![],
@@ -281,8 +288,6 @@ fn create_match_expr(
     enum_name: &syn::Ident,
     enumvariants: &[&EnumDispatchVariant],
 ) -> syn::Expr {
-    let trait_fn_call = create_trait_fn_call(trait_method, trait_generics, trait_name);
-
     // Creates a Vec containing a match arm for every enum variant
     let match_arms = enumvariants
         .iter()
@@ -302,7 +307,12 @@ fn create_match_expr(
                 },
                 guard: None,
                 fat_arrow_token: Default::default(),
-                body: Box::new(syn::Expr::from(trait_fn_call.to_owned())),
+                body: Box::new(syn::Expr::from(create_trait_fn_call(
+                    trait_method,
+                    trait_generics,
+                    trait_name,
+                    variant.deref,
+                ))),
                 comma: Some(Default::default()),
             }
         })

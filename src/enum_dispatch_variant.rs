@@ -11,9 +11,13 @@ use quote::TokenStreamExt;
 
 use crate::filter_attrs::FilterAttrs;
 
+pub const ENUM_DISPATCH: &str = "enum_dispatch";
+pub const DEREF_ATTRIBUTE: &str = "deref";
+
 /// A structure that can be used to store syntax information about an `enum_dispatch` enum variant.
 #[derive(Clone)]
 pub struct EnumDispatchVariant {
+    pub deref: bool,
     pub attrs: Vec<syn::Attribute>,
     pub ident: syn::Ident,
     pub ty: syn::Type,
@@ -22,7 +26,14 @@ pub struct EnumDispatchVariant {
 /// Allows `EnumDispatchItem`s to be parsed from `String`s or `TokenStream`s.
 impl syn::parse::Parse for EnumDispatchVariant {
     fn parse(input: syn::parse::ParseStream) -> syn::parse::Result<Self> {
-        let attrs = input.call(syn::Attribute::parse_outer)?;
+        let mut attrs = input.call(syn::Attribute::parse_outer)?;
+        let deref = if let Some(i) = attrs.iter().position(is_deref_attribute) {
+            attrs.remove(i);
+            true
+        } else {
+            false
+        };
+
         let ident: syn::Ident = input.parse()?;
         let ty = if input.peek(syn::token::Brace) {
             unimplemented!("enum_dispatch variants cannot have braces for arguments");
@@ -39,7 +50,12 @@ impl syn::parse::Parse for EnumDispatchVariant {
         } else {
             into_type(ident.clone())
         };
-        Ok(EnumDispatchVariant { attrs, ident, ty })
+        Ok(EnumDispatchVariant {
+            deref,
+            attrs,
+            ident,
+            ty,
+        })
     }
 }
 
@@ -72,4 +88,42 @@ fn into_type(ident: syn::Ident) -> syn::Type {
         },
         qself: None,
     })
+}
+
+fn is_deref_attribute(attr: &syn::Attribute) -> bool {
+    let meta_items = get_enum_dispatch_meta_items(attr);
+    // we only expect 1 meta item for now
+    if meta_items.len() > 1 {
+        panic!("Expected #[enum_dispatch(deref)] but found multiple items");
+    }
+
+    match meta_items.first() {
+        Some(syn::NestedMeta::Meta(syn::Meta::Path(word))) if word.is_ident(DEREF_ATTRIBUTE) => {
+            true
+        }
+        Some(unexpected) => panic!(
+            "Expected #[enum_dispatch(deref)] but found {:?}",
+            unexpected
+        ),
+        None => false,
+    }
+}
+
+fn get_enum_dispatch_meta_items(attr: &syn::Attribute) -> Vec<syn::NestedMeta> {
+    if attr.path.is_ident(ENUM_DISPATCH) {
+        match attr.parse_meta() {
+            Ok(syn::Meta::List(meta)) => meta.nested.into_iter().collect(),
+            Ok(unexpected) => {
+                panic!("Expected #[enum_dispatch(...)] but found {:?}", unexpected);
+            }
+            Err(error) => {
+                panic!(
+                    "Expected #[enum_dispatch(...)] but hit parse error {:?}",
+                    error
+                );
+            }
+        }
+    } else {
+        vec![]
+    }
 }
