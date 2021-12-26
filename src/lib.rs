@@ -448,3 +448,54 @@ fn enum_dispatch2(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
     expanded
 }
+
+/// TODO: Docs
+#[cfg(feature = "extend")]
+#[proc_macro_attribute]
+pub fn enum_dispatch_extend(attr: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    enum_dispatch_extend2(attr.into(), item.into()).into()
+}
+
+/// `proc_macro2::TokenStream` compatible version of the `enum_dispatch_extend` function.
+///
+/// Using only `proc_macro2::TokenStream` inside the entire crate makes methods unit-testable and
+/// removes the need for conversions everywhere.
+#[cfg(feature = "extend")]
+fn enum_dispatch_extend2(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let mut enum_parsed: syn::ItemEnum = syn::parse2(item).unwrap();
+    let args = syn::parse2::<enum_dispatch_arg_list::EnumDispatchExtendArgList>(attr)
+        .expect("Could not parse arguments to `#[enum_dispatch_extend(...)]`.");
+
+    let ident_extended_enum = enum_parsed.ident.clone();
+    let ident_trait = &args.ident_trait;
+    let ident_enum = &args.ident_enum;
+
+    let name_extended_trait = "EnumDispatchExtended".to_string() + ident_trait.to_string().as_str();
+    let name_macro = "enum_dispatch_extend_".to_string() + ident_trait.to_string().as_str() + "_" + ident_enum.to_string().as_str();
+    let ident_extended_trait = syn::Ident::new(&name_extended_trait, proc_macro2::Span::call_site());
+    let ident_macro = syn::Ident::new(&name_macro, proc_macro2::Span::call_site());
+
+    let mut macro_args = vec![ident_extended_enum];
+    enum_parsed.variants.iter()
+        .map(|variant| &variant.ident)
+        .for_each(|variant| macro_args.push(variant.clone()));
+
+    enum_parsed.variants.push(syn::parse2(quote::quote! {
+        EnumDispatchExtended(#ident_enum)
+    }).unwrap());
+
+    let mut stream = TokenStream::new();
+    stream.append_all(quote::quote! { #[enum_dispatch(#ident_extended_trait)] });
+    stream.append_all(enum_parsed.into_token_stream());
+
+    stream.append_all(quote::quote! {
+        #[enum_dispatch]
+        trait #ident_extended_trait: #ident_trait {}
+    });
+
+    stream.append_all(quote::quote! {
+        #ident_macro!(#(#macro_args),*);
+    });
+
+    stream
+}
