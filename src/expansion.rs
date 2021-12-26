@@ -8,6 +8,9 @@ use crate::enum_dispatch_item::EnumDispatchItem;
 use crate::enum_dispatch_variant::EnumDispatchVariant;
 use crate::syn_utils::plain_identifier_expr;
 
+#[cfg(feature = "extend")]
+use quote::TokenStreamExt;
+
 /// Name bound to the single enum field in generated match statements. It doesn't really matter
 /// what this is, as long as it's consistent across the left and right sides of generated match
 /// arms. For simplicity's sake, the field is bound to this name everywhere it's generated.
@@ -21,6 +24,9 @@ pub fn add_enum_impls(
 ) -> proc_macro2::TokenStream {
     let traitname = traitdef.ident;
     let traitfns = traitdef.items;
+
+    #[cfg(feature = "extend")]
+    let mut extend_fns = proc_macro2::TokenStream::new();
 
     let (generic_impl_constraints, enum_type_generics, where_clause) =
         enum_def.generics.split_for_impl();
@@ -39,6 +45,13 @@ pub fn add_enum_impls(
     let variants: Vec<&EnumDispatchVariant> = enum_def.variants.iter().collect();
 
     for trait_fn in traitfns {
+        #[cfg(feature = "extend")]
+        extend_fns.append_all(create_extend_macro_match(
+            trait_fn.clone(),
+            &trait_type_generics,
+            &enum_def.ident,
+        ));
+
         trait_impl.items.push(create_trait_match(
             trait_fn,
             &trait_type_generics,
@@ -72,6 +85,37 @@ pub fn add_enum_impls(
     }
 
     trait_impl.to_tokens(&mut impls);
+
+    #[cfg(feature = "extend")]
+    {
+        let enum_variants = variants.iter()
+            .map(|variant| &variant.ident);
+
+        let macro_name = "enum_dispatch_extend_".to_string() + traitname.to_string().as_str() + "_" + enumname.to_string().as_str();
+        let macro_ident = syn::Ident::new(&macro_name, proc_macro2::Span::call_site());
+
+        let macro_expr = quote! {
+            #[macro_export]
+            macro_rules! #macro_ident {
+                ($for:ident, $($variants:ident),+) => {
+                    impl #traitname for $for {
+                        #extend_fns
+                    }
+
+                    #(
+                        impl From<#enum_variants> for $for {
+                            fn from(v: #enum_variants) -> Self {
+                                Self::EnumDispatchExtended(v.into())
+                            }
+                        }
+                    )*
+                };
+            }
+        };
+
+        impls.append_all(macro_expr);
+    }
+
     impls
 }
 
@@ -420,4 +464,55 @@ fn identify_signature_arguments(sig: &mut syn::Signature) {
         // `self` arguments will never need to be renamed.
         syn::FnArg::Receiver(..) => (),
     });
+}
+
+/// Build macro_rules body for extended trait impl
+#[cfg(feature = "extend")]
+fn create_extend_macro_match(
+    trait_item: syn::TraitItem,
+    trait_generics: &syn::TypeGenerics,
+    enum_name: &syn::Ident,
+) -> proc_macro2::TokenStream {
+    match trait_item {
+        syn::TraitItem::Method(mut trait_method) => {
+            identify_signature_arguments(&mut trait_method.sig);
+
+            let extended_fn_ident = syn::Ident::new("variants", proc_macro2::Span::call_site());
+            let default_fn_call = create_trait_fn_call(&trait_method, trait_generics, enum_name);
+            let extended_fn_call = create_trait_fn_call(&trait_method, trait_generics, &extended_fn_ident);
+
+            let mut impl_attrs = trait_method.attrs.clone();
+            // Inline impls - #[inline] is never already specified in a trait method signature
+            impl_attrs.push(syn::Attribute {
+                pound_token: Default::default(),
+                style: syn::AttrStyle::Outer,
+                bracket_token: Default::default(),
+                path: syn::parse_str("inline").unwrap(),
+                tokens: proc_macro::TokenStream::new().into(),
+            });
+
+            let mut stream = proc_macro2::TokenStream::new();
+
+            // Attrs
+            impl_attrs.iter()
+                .for_each(|attr| stream.append_all(attr.to_token_stream()));
+
+            // Signature
+            stream.append_all(trait_method.sig.to_token_stream());
+
+            // Body
+            let explicit_self_arg = syn::Ident::new(FIELDNAME, trait_method.span());
+            stream.append_all(quote! {
+                {
+                    match self {
+                        $( Self::$variants(#explicit_self_arg) => $#extended_fn_call ),*,
+                        Self::EnumDispatchExtended(#explicit_self_arg) => #default_fn_call,
+                    }
+                }
+            });
+
+            stream
+        }
+        _ => panic!("Unsupported trait item"),
+    }
 }
