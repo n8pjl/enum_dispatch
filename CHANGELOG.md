@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.8
+
+- Preserve attributes from inner fields of enum variants (!27)
+
+## 0.3.7
+
+- Support trait methods with late bound lifetime arguments (#34)
+
+## 0.3.6
+
+- Remove `extra-traits` feature from `syn` dependency (!24)
+- Support trait methods with pattern arguments (#44)
+
 ## 0.3.5
 
 - Compatibility with `syn >= 1.0.58` (#37, !21)

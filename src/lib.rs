@@ -325,7 +325,7 @@
 
 extern crate proc_macro;
 
-use proc_macro::TokenStream;
+use proc_macro2::TokenStream;
 use quote::{ToTokens, TokenStreamExt};
 
 /// Used for converting a macro input into an ItemTrait or an EnumDispatchItem.
@@ -360,7 +360,15 @@ use crate::expansion::add_enum_impls;
 /// current scope. To force individual variants to use a custom name when expanded, each variant
 /// can also take the form of a normal tuple-style enum variant with a single field.
 #[proc_macro_attribute]
-pub fn enum_dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn enum_dispatch(attr: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    enum_dispatch2(attr.into(), item.into()).into()
+}
+
+/// `proc_macro2::TokenStream` compatible version of the `enum_dispatch` function.
+///
+/// Using only `proc_macro2::TokenStream` inside the entire crate makes methods unit-testable and
+/// removes the need for conversions everywhere.
+fn enum_dispatch2(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut new_block = attributed_parser::parse_attributed(item.clone()).unwrap();
     // If the attributes are non-empty, the new block should be "linked" to the listed definitions.
     // Those definitions may or may not have been cached yet.
@@ -368,7 +376,7 @@ pub fn enum_dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
     // be deferred until the missing definition is encountered.
     // For now, we assume it is already cached.
     if !attr.is_empty() {
-        syn::parse::<enum_dispatch_arg_list::EnumDispatchArgList>(attr)
+        syn::parse2::<enum_dispatch_arg_list::EnumDispatchArgList>(attr)
             .expect("Could not parse arguments to `#[enum_dispatch(...)]`.")
             .traits
             .into_iter()
@@ -439,7 +447,6 @@ pub fn enum_dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
             cache::cache_enum_dispatch(enumdef.clone());
             syn::ItemEnum::from(enumdef.to_owned())
                 .into_token_stream()
-                .into()
         }
     };
     let mut expanded = proc_macro2::TokenStream::from(expanded);
@@ -462,5 +469,5 @@ pub fn enum_dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
     }
-    expanded.into()
+    expanded
 }
