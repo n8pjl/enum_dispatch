@@ -369,18 +369,7 @@ pub fn enum_dispatch(attr: proc_macro::TokenStream, item: proc_macro::TokenStrea
 /// Using only `proc_macro2::TokenStream` inside the entire crate makes methods unit-testable and
 /// removes the need for conversions everywhere.
 fn enum_dispatch2(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let new_block = attributed_parser::parse_attributed(item.clone()).unwrap();
-    let mut expanded = match &new_block {
-        attributed_parser::ParsedItem::Trait(traitdef) => {
-            cache::cache_trait(traitdef.to_owned());
-            item
-        }
-        attributed_parser::ParsedItem::EnumDispatch(enumdef) => {
-            cache::cache_enum_dispatch(enumdef.clone());
-            syn::ItemEnum::from(enumdef.to_owned())
-                .into_token_stream()
-        }
-    };
+    let mut new_block = attributed_parser::parse_attributed(item.clone()).unwrap();
     // If the attributes are non-empty, the new block should be "linked" to the listed definitions.
     // Those definitions may or may not have been cached yet.
     // If one is not cached yet, the link will be pushed into the cache, and impl generation will
@@ -389,9 +378,9 @@ fn enum_dispatch2(attr: TokenStream, item: TokenStream) -> TokenStream {
     if !attr.is_empty() {
         syn::parse2::<enum_dispatch_arg_list::EnumDispatchArgList>(attr)
             .expect("Could not parse arguments to `#[enum_dispatch(...)]`.")
-            .arg_list
+            .traits
             .into_iter()
-            .for_each(|p| {
+            .for_each(|(p, args)| {
                 if p.leading_colon.is_some() || p.segments.len() != 1 {
                     panic!("Paths in `#[enum_dispatch(...)]` are not supported.");
                 }
@@ -417,16 +406,50 @@ fn enum_dispatch2(attr: TokenStream, item: TokenStream) -> TokenStream {
                     }
                     syn::PathArguments::Parenthesized(_) => panic!("Expected angle bracketed generic arguments, found parenthesized arguments"),
                 };
-                match &new_block {
+                match &mut new_block {
                     attributed_parser::ParsedItem::Trait(traitdef) => {
                         cache::defer_link((attr_name, attr_generics.len()), (&traitdef.ident, traitdef.generics.type_params().count()))
                     }
                     attributed_parser::ParsedItem::EnumDispatch(enumdef) => {
+                        enumdef.consts = args.associated_consts.iter().map(|(name, (ty, value))| syn::ImplItemConst{
+                            attrs: Vec::new(),
+                            vis: syn::Visibility::Inherited,
+                            defaultness: None,
+                            const_token: syn::parse_str("const").unwrap(),
+                            ident: name.clone(),
+                            colon_token: syn::parse_str(":").unwrap(),
+                            ty: ty.clone(),
+                            eq_token: syn::parse_str("=").unwrap(),
+                            expr: match &value {
+                                enum_dispatch_arg_list::ConstValue::Literal(lit) => syn::Expr::Lit(syn::ExprLit{
+                                    attrs: Vec::new(),
+                                    lit: lit.clone()
+                                }),
+                                enum_dispatch_arg_list::ConstValue::Identifier(path) => syn::Expr::Path(syn::ExprPath{
+                                    attrs: Vec::new(),
+                                    qself: None,
+                                    path: path.clone()
+                                })
+                            },
+                            semi_token: syn::parse_str(";").unwrap()
+                        }).collect();
                         cache::defer_link((attr_name, attr_generics.len()), (&enumdef.ident, enumdef.generics.type_params().count()))
                     }
                 }
             });
     };
+    let expanded = match &new_block {
+        attributed_parser::ParsedItem::Trait(traitdef) => {
+            cache::cache_trait(traitdef.to_owned());
+            item
+        }
+        attributed_parser::ParsedItem::EnumDispatch(enumdef) => {
+            cache::cache_enum_dispatch(enumdef.clone());
+            syn::ItemEnum::from(enumdef.to_owned())
+                .into_token_stream()
+        }
+    };
+    let mut expanded = proc_macro2::TokenStream::from(expanded);
     // It would be much simpler to just always retrieve all definitions from the cache. However,
     // span information is not stored in the cache. Saving the newly retrieved definition prevents
     // *all* of the span information from being lost.

@@ -22,6 +22,7 @@ pub struct EnumDispatchItem {
     pub ident: syn::Ident,
     pub generics: syn::Generics,
     brace_token: syn::token::Brace,
+    pub consts: Vec<syn::ImplItemConst>,
     pub variants: syn::punctuated::Punctuated<EnumDispatchVariant, syn::token::Comma>,
 }
 
@@ -36,6 +37,7 @@ impl syn::parse::Parse for EnumDispatchItem {
         let where_clause = input.parse()?;
         let content;
         let brace_token = syn::braced!(content in input);
+        let consts = Vec::new();
         let variants = content.parse_terminated(EnumDispatchVariant::parse)?;
         Ok(Self {
             attrs,
@@ -47,6 +49,7 @@ impl syn::parse::Parse for EnumDispatchItem {
                 ..generics
             },
             brace_token,
+            consts,
             variants,
         })
     }
@@ -62,6 +65,10 @@ impl quote::ToTokens for EnumDispatchItem {
         self.generics.to_tokens(tokens);
         self.generics.where_clause.to_tokens(tokens);
         self.brace_token.surround(tokens, |tokens| {
+            for item in self.consts.iter() {
+                item.to_tokens(tokens);
+                tokens.append(proc_macro2::Punct::new(';', proc_macro2::Spacing::Alone));
+            }
             self.variants.to_tokens(tokens);
         });
     }
