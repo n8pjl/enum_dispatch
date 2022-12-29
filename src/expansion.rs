@@ -218,6 +218,7 @@ fn extract_fn_args(
 /// Creates a method call that can be used in the match arms of all non-static method
 /// implementations.
 fn create_trait_fn_call(
+    variant: &EnumDispatchVariant,
     trait_method: &syn::TraitItemMethod,
     trait_generics: &syn::TypeGenerics,
     trait_name: &syn::Ident,
@@ -226,7 +227,7 @@ fn create_trait_fn_call(
     let (method_type, mut args) = extract_fn_args(trait_args);
 
     // Insert FIELDNAME at the beginning of the argument list for UCFS-style method calling
-    let explicit_self_arg = syn::Ident::new(FIELDNAME, trait_method.span());
+    let explicit_self_arg = syn::Ident::new(FIELDNAME, variant.span());
     args.insert(0, plain_identifier_expr(explicit_self_arg));
 
     syn::ExprCall {
@@ -281,8 +282,6 @@ fn create_match_expr(
     enum_name: &syn::Ident,
     enumvariants: &[&EnumDispatchVariant],
 ) -> syn::Expr {
-    let trait_fn_call = create_trait_fn_call(trait_method, trait_generics, trait_name);
-
     // Creates a Vec containing a match arm for every enum variant
     let match_arms = enumvariants
         .iter()
@@ -294,6 +293,8 @@ fn create_match_expr(
                 .filter(use_attribute)
                 .cloned()
                 .collect::<Vec<_>>();
+            let trait_fn_call =
+                create_trait_fn_call(variant, trait_method, trait_generics, trait_name);
             syn::Arm {
                 attrs,
                 pat: {
@@ -302,7 +303,7 @@ fn create_match_expr(
                 },
                 guard: None,
                 fat_arrow_token: Default::default(),
-                body: Box::new(syn::Expr::from(trait_fn_call.to_owned())),
+                body: Box::new(syn::Expr::from(trait_fn_call)),
                 comma: Some(Default::default()),
             }
         })
