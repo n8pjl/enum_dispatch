@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.12
+
+- Update to syn 2.0 (#69)
+
 ## 0.3.11
 
 - Add support for trait methods that return `Self` (#59, !29)
