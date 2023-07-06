@@ -23,8 +23,10 @@ pub enum UnsupportedGenericArg {
     NonIdentifierType,
     NonIntegralConstGenericType,
     Lifetime,
-    Binding,
     Constraint,
+    AssocType,
+    AssocConst,
+    Unknown,
 }
 
 impl std::fmt::Display for UnsupportedGenericArg {
@@ -33,8 +35,10 @@ impl std::fmt::Display for UnsupportedGenericArg {
             Self::NonIdentifierType => write!(f, "Generic types in #[enum_dispatch(...)] must be identifiers"),
             Self::NonIntegralConstGenericType => write!(f, "Non-integral const generic types in #[enum_dispatch(...)] are not supported"),
             Self::Lifetime => write!(f, "Lifetime generics in #[enum_dispatch(...)] are not supported"),
-            Self::Binding => write!(f, "Generic equality constraints in #[enum_dispatch(...)] are not supported"),
+            Self::AssocType => write!(f, "Generic associated types in #[enum_dispatch(...)] are not supported"),
+            Self::AssocConst => write!(f, "Generic associated constants in #[enum_dispatch(...)] are not supported"),
             Self::Constraint => write!(f, "Generic trait constraints in #[enum_dispatch(...)] are not supported"),
+            Self::Unknown => write!(f, "Unsupported generic argument syntax in #[enum_dispatch(...)]"),
         }
     }
 }
@@ -101,7 +105,9 @@ pub fn convert_to_supported_generic(generic_arg: &syn::GenericArgument) -> Resul
         }
         syn::GenericArgument::Const(_) => Err((UnsupportedGenericArg::NonIntegralConstGenericType, span)),
         syn::GenericArgument::Lifetime(_) => Err((UnsupportedGenericArg::Lifetime, span)),
-        syn::GenericArgument::Binding(_) => Err((UnsupportedGenericArg::Binding, span)),
         syn::GenericArgument::Constraint(_) => Err((UnsupportedGenericArg::Constraint, span)),
+        syn::GenericArgument::AssocType(_) => Err((UnsupportedGenericArg::AssocType, span)),
+        syn::GenericArgument::AssocConst(_) => Err((UnsupportedGenericArg::AssocConst, span)),
+        _ => Err((UnsupportedGenericArg::Unknown, span)),
     }
 }

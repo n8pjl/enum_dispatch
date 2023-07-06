@@ -36,7 +36,7 @@ impl syn::parse::Parse for EnumDispatchItem {
         let where_clause = input.parse()?;
         let content;
         let brace_token = syn::braced!(content in input);
-        let variants = content.parse_terminated(EnumDispatchVariant::parse)?;
+        let variants = content.parse_terminated(EnumDispatchVariant::parse, syn::Token![,])?;
         Ok(Self {
             attrs,
             vis,
@@ -88,6 +88,7 @@ impl ::std::convert::From<EnumDispatchItem> for syn::ItemEnum {
                             ident: None,
                             colon_token: Default::default(),
                             ty: variant.ty.to_owned(),
+                            mutability: syn::FieldMutability::None,
                         });
                         punctuated
                     },

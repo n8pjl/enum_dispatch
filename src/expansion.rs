@@ -78,7 +78,7 @@ pub fn add_enum_impls(
 /// Returns whether or not an attribute from an enum variant should be applied to other usages of
 /// that variant's identifier.
 fn use_attribute(attr: &&syn::Attribute) -> bool {
-    attr.path.is_ident("cfg")
+    attr.path().is_ident("cfg")
 }
 
 /// Generates impls of core::convert::From for each enum variant.
@@ -218,7 +218,7 @@ fn extract_fn_args(
 /// Creates a method call that can be used in the match arms of all non-static method
 /// implementations.
 fn create_trait_fn_call(
-    trait_method: &syn::TraitItemMethod,
+    trait_method: &syn::TraitItemFn,
     trait_generics: &syn::TypeGenerics,
     trait_name: &syn::Ident,
 ) -> syn::Expr {
@@ -286,7 +286,7 @@ fn create_trait_fn_call(
 /// Constructs a match expression that matches on all variants of the specified enum, creating a
 /// binding to their single field and calling the provided trait method on each.
 fn create_match_expr(
-    trait_method: &syn::TraitItemMethod,
+    trait_method: &syn::TraitItemFn,
     trait_generics: &syn::TypeGenerics,
     trait_name: &syn::Ident,
     enum_name: &syn::Ident,
@@ -366,7 +366,7 @@ fn create_trait_match(
     enumvariants: &[&EnumDispatchVariant],
 ) -> syn::ImplItem {
     match trait_item {
-        syn::TraitItem::Method(mut trait_method) => {
+        syn::TraitItem::Fn(mut trait_method) => {
             identify_signature_arguments(&mut trait_method.sig);
 
             let match_expr = create_match_expr(
@@ -383,18 +383,17 @@ fn create_trait_match(
                 pound_token: Default::default(),
                 style: syn::AttrStyle::Outer,
                 bracket_token: Default::default(),
-                path: syn::parse_str("inline").unwrap(),
-                tokens: proc_macro::TokenStream::new().into(),
+                meta: syn::Meta::Path(syn::parse_str("inline").unwrap()),
             });
 
-            syn::ImplItem::Method(syn::ImplItemMethod {
+            syn::ImplItem::Fn(syn::ImplItemFn {
                 attrs: impl_attrs,
                 vis: syn::Visibility::Inherited,
                 defaultness: None,
                 sig: trait_method.sig,
                 block: syn::Block {
                     brace_token: Default::default(),
-                    stmts: vec![syn::Stmt::Expr(match_expr)],
+                    stmts: vec![syn::Stmt::Expr(match_expr, None)],
                 },
             })
         }
@@ -430,8 +429,7 @@ fn identify_signature_arguments(sig: &mut syn::Signature) {
                     ..pat_ident.clone()
                 }),
                 // Some of these aren't valid Rust syntax, but why not support all of them anyways!
-                syn::Pat::Box(syn::PatBox { attrs, .. })
-                | syn::Pat::Lit(syn::PatLit { attrs, .. })
+                syn::Pat::Lit(syn::PatLit { attrs, .. })
                 | syn::Pat::Macro(syn::PatMacro { attrs, .. })
                 | syn::Pat::Or(syn::PatOr { attrs, .. })
                 | syn::Pat::Path(syn::PatPath { attrs, .. })
@@ -443,8 +441,18 @@ fn identify_signature_arguments(sig: &mut syn::Signature) {
                 | syn::Pat::Tuple(syn::PatTuple { attrs, .. })
                 | syn::Pat::TupleStruct(syn::PatTupleStruct { attrs, .. })
                 | syn::Pat::Type(syn::PatType { attrs, .. })
+                | syn::Pat::Const(syn::PatConst { attrs, .. })
+                | syn::Pat::Paren(syn::PatParen { attrs, .. })
                 | syn::Pat::Wild(syn::PatWild { attrs, .. }) => syn::Pat::Ident(syn::PatIdent {
                     attrs: attrs.to_owned(),
+                    by_ref: None,
+                    mutability: None,
+                    ident: new_arg_ident(span, &mut arg_counter),
+                    subpat: None,
+                }),
+                // This can occur for `box foo` syntax, which is no longer supported by syn 2.0.
+                syn::Pat::Verbatim(_) => syn::Pat::Ident(syn::PatIdent {
+                    attrs: Default::default(),
                     by_ref: None,
                     mutability: None,
                     ident: new_arg_ident(span, &mut arg_counter),
