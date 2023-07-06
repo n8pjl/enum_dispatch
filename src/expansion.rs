@@ -1,6 +1,6 @@
 //! Provides a utility for generating `enum_dispatch` impl blocks given `EnumDispatchItem` and
 //! `syn::ItemTrait` definitions.
-use crate::{cache, proc_macro};
+use crate::cache;
 use quote::{quote, ToTokens};
 use syn::spanned::Spanned;
 
