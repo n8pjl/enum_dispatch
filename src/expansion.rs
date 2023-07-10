@@ -263,7 +263,7 @@ fn create_trait_fn_call(
                 let method_turbofish = method_type_generics.as_turbofish();
 
                 Box::new(
-                    syn::parse_quote! { #trait_name#trait_turbofish::#method_name#method_turbofish },
+                    syn::parse_quote! { #trait_name #trait_turbofish::#method_name#method_turbofish },
                 )
             }
         },

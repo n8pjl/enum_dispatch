@@ -7,6 +7,7 @@ use crate::enum_dispatch_item;
 pub enum ParsedItem {
     Trait(syn::ItemTrait),
     EnumDispatch(enum_dispatch_item::EnumDispatchItem),
+    Module(syn::ItemMod)
 }
 
 /// Parses any syntax item that was annotated with the `enum_dispatch` attribute and returns its
@@ -14,8 +15,10 @@ pub enum ParsedItem {
 pub fn parse_attributed(item: proc_macro2::TokenStream) -> Result<ParsedItem, ()> {
     if let Ok(enumdef) = syn::parse2(item.clone()) {
         Ok(ParsedItem::EnumDispatch(enumdef))
-    } else if let Ok(traitdef) = syn::parse2(item) {
+    } else if let Ok(traitdef) = syn::parse2(item.clone()) {
         Ok(ParsedItem::Trait(traitdef))
+    } else if let Ok(moddef) = syn::parse2(item) {
+        Ok(ParsedItem::Module(moddef))
     } else {
         Err(())
     }
