@@ -325,12 +325,17 @@ html_favicon_url = "https://gitlab.com/antonok/enum_dispatch/raw/master/enum_dis
 
 extern crate proc_macro;
 
+use std::fmt::format;
+use itertools::Itertools;
 use proc_macro2::{Ident, TokenStream};
 use quote::{ToTokens, TokenStreamExt};
-use syn::{Path, PathArguments};
+use syn::{Item, ItemEnum, ItemImpl, ItemMod, ItemTrait, parse2, parse_macro_input, Path, PathArguments, TraitItem};
+use syn::parse::Parse;
 use syn::spanned::Spanned;
+use syn::token::{Brace, For};
 use crate::attributed_parser::ParsedItem;
 use crate::enum_dispatch_arg_list::{EnumDispatchArgList, ForItem, ListItem};
+use crate::enum_dispatch_item::EnumDispatchItem;
 
 /// Used for converting a macro input into an ItemTrait or an EnumDispatchItem.
 mod attributed_parser;
@@ -406,8 +411,8 @@ fn get_generics(p: &Path) -> syn::Result<(&Ident, Vec<SupportedGenericArg>)> {
 /// Using only `proc_macro2::TokenStream` inside the entire crate makes methods unit-testable and
 /// removes the need for conversions everywhere.
 fn enum_dispatch2(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
-    let new_block = attributed_parser::parse_attributed(item.clone()).unwrap();
-    let args = syn::parse2::<enum_dispatch_arg_list::EnumDispatchArgList>(attr.clone()).expect("Could not parse arguments to `#[enum_dispatch(...)]`.");
+    let new_block = attributed_parser::parse_attributed(item.clone()).expect("Could not parse item");
+    let args = parse2::<EnumDispatchArgList>(attr.clone())?;
 
     let expanded: Result<_, _> = match (&new_block, args) {
         (ParsedItem::Trait(traitdef), EnumDispatchArgList::List(l)) => {
@@ -421,7 +426,7 @@ fn enum_dispatch2(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStre
             enum_dispatch2_split(&new_block, item, l)
         }
         (ParsedItem::Module(moddef), EnumDispatchArgList::For(f)) => {
-            todo!();
+            enum_dispatch2_mod(moddef, f)
         }
         (_, EnumDispatchArgList::List(_)) => { Err(syn::Error::new(attr.span(), "List arguments cannot be applied to {args:?}")) }
         (_, EnumDispatchArgList::For(_)) => { Err(syn::Error::new(attr.span(), "List arguments cannot be applied to {args:?}")) }
@@ -429,6 +434,56 @@ fn enum_dispatch2(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStre
 
     return expanded;
 }
+
+fn enum_dispatch2_mod(module: &ItemMod, arg_list: ForItem) -> syn::Result<TokenStream> {
+    let mut items = module.clone().content.ok_or(syn::Error::new(module.span(), "Module is empty"))?.1;
+
+    // return Ok(items[1].to_token_stream());
+    let trait_defs = arg_list.traits.iter().map(|t| {
+        items.iter().filter_map(
+            |i| {
+                if let Item::Trait(it) = i {
+                    if t.is_ident(&it.ident) {
+                        return Some(it.clone());
+                    }
+                }
+                None
+            }
+        ).at_most_one()
+            .map_err(|mut e| { syn::Error::new(e.next().span(), "Multiple traits found with the same ident") })?
+            .ok_or(syn::Error::new(t.span(), format!("Trait {} not found in module", t.get_ident().unwrap())))
+    }).collect::<syn::Result<Vec<_>>>()?;
+
+    let (enum_index, enumdef) = items.iter().enumerate().filter_map(
+        |(index,i)| {
+            if let Item::Enum(it) = i {
+                if arg_list.item.is_ident(&it.ident) {
+                    return Some((index,it.clone()));
+                }
+            }
+            None
+        }
+    ).at_most_one()
+        .map_err(|mut e| { syn::Error::new(e.next().unwrap().1.span(), "Multiple enums found with the same ident") })?
+        .ok_or(syn::Error::new(arg_list.item.span(), format!("Enum {} not found in module", arg_list.item.get_ident().unwrap())))?;
+
+    items.remove(enum_index);
+    let enumdef = parse2::<EnumDispatchItem>(enumdef.to_token_stream())?;
+    let enumitem = parse2::<ItemEnum>(enumdef.to_token_stream())?;
+    items.insert(enum_index, Item::Enum(enumitem));
+
+    for traitdef in trait_defs {
+        items.extend(add_enum_impls(enumdef.clone(), traitdef.clone()))
+    }
+
+    let content = module.clone().content.map(|(b, _)| (b, items));
+    let module = ItemMod {
+        content,
+        ..module.clone()
+    };
+    Ok(module.to_token_stream())
+}
+
 
 fn enum_dispatch2_split(new_block: &ParsedItem, mut expanded: TokenStream, arg_list: ListItem) -> syn::Result<TokenStream> {
     // If the attributes are non-empty, the new block should be "linked" to the listed definitions.
@@ -464,7 +519,9 @@ fn enum_dispatch2_split(new_block: &ParsedItem, mut expanded: TokenStream, arg_l
             let additional_enums =
                 cache::fulfilled_by_trait(&traitdef.ident, supported_generics);
             for enumdef in additional_enums {
-                expanded.append_all(add_enum_impls(enumdef, traitdef.clone()));
+                for item in add_enum_impls(enumdef, traitdef.clone()) {
+                    item.to_tokens(&mut expanded);
+                }
             }
             Ok(expanded)
         }
@@ -473,7 +530,9 @@ fn enum_dispatch2_split(new_block: &ParsedItem, mut expanded: TokenStream, arg_l
             let additional_traits =
                 cache::fulfilled_by_enum(&enumdef.ident, supported_generics);
             for traitdef in additional_traits {
-                expanded.append_all(add_enum_impls(enumdef.clone(), traitdef));
+                for item in add_enum_impls(enumdef.clone(), traitdef) {
+                    item.to_tokens(&mut expanded);
+                }
             }
             Ok(expanded)
         }
