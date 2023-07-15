@@ -75,6 +75,18 @@ impl syn::parse::Parse for EnumDispatchVariant {
 impl quote::ToTokens for EnumDispatchVariant {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         tokens.append_all(self.attrs.outer());
+        // In <EnumDispatchVariant as syn::Parse>::parse, we removed the
+        // #[enum_dispatch(deref)] attribute, so that it wouldn't go in the
+        // expanded code.
+        //
+        // However, this function is called by enum_dispatch to cache the enum
+        // source code, so that it can be parsed (again) later.  In that case,
+        // the second parse should in fact see the attribute, so we put it back
+        // just for this purpose.
+        if self.deref {
+            let deref_attr: syn::Attribute = syn::parse_quote! { #[enum_dispatch(deref)] };
+            deref_attr.to_tokens(tokens);
+        }
         self.ident.to_tokens(tokens);
         syn::token::Paren::default().surround(tokens, |tokens| {
             tokens.append_all(self.field_attrs.iter());
