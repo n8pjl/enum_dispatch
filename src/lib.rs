@@ -347,7 +347,7 @@ mod supported_generics;
 /// Convenience methods for constructing `syn` types.
 mod syn_utils;
 
-use crate::expansion::add_enum_impls;
+use crate::expansion::{add_enum_impls, add_from_into_impls};
 use crate::supported_generics::{convert_to_supported_generic, num_supported_generics};
 
 /// Annotating a trait or enum definition with an `#[enum_dispatch]` attribute will register it
@@ -453,6 +453,7 @@ fn enum_dispatch2(attr: TokenStream, item: TokenStream) -> TokenStream {
             for traitdef in additional_traits {
                 expanded.append_all(add_enum_impls(enumdef.clone(), traitdef));
             }
+            expanded.append_all(add_from_into_impls(enumdef));
         }
     }
     expanded
