@@ -192,58 +192,58 @@
 //! `std::convert::From` for each enum variant, so that new `Knob`s can be created without concern
 //! for the names of each enum variant.
 //!
-//! ```
-//! # use enum_dispatch::enum_dispatch;
-//! #
-//! # #[enum_dispatch]
-//! # trait KnobControl {
-//! #     fn set_position(&mut self, value: f64);
-//! #     fn get_value(&self) -> f64;
-//! # }
-//! #
-//! # struct LinearKnob {
-//! #     position: f64,
-//! # }
-//! #
-//! # struct LogarithmicKnob {
-//! #     position: f64,
-//! # }
-//! #
-//! # impl KnobControl for LinearKnob {
-//! #     fn set_position(&mut self, value: f64) {
-//! #         self.position = value;
-//! #     }
-//! #
-//! #     fn get_value(&self) -> f64 {
-//! #         self.position
-//! #     }
-//! # }
-//! #
-//! # impl KnobControl for LogarithmicKnob {
-//! #     fn set_position(&mut self, value: f64) {
-//! #         self.position = value;
-//! #     }
-//! #
-//! #     fn get_value(&self) -> f64 {
-//! #         (self.position + 1.).log2()
-//! #     }
-//! # }
-//! #
-//! # #[enum_dispatch(KnobControl)]
-//! # enum Knob {
-//! #     LinearKnob,
-//! #     LogarithmicKnob,
-//! # }
-//! #
-//! # fn some_existing_knobs() -> (LinearKnob, LogarithmicKnob) {
-//! #     (LinearKnob { position: 0.5 }, LogarithmicKnob { position: 0.5 })
-//! # }
-//! #
-//! let (a_linear_knob, a_logarithmic_knob) = some_existing_knobs();
-//!
-//! let knob = Knob::from(a_linear_knob);
-//! let knob = Knob::from(a_logarithmic_knob);
-//! ```
+// ```
+// # use enum_dispatch::enum_dispatch;
+// #
+// # #[enum_dispatch]
+// # trait KnobControl {
+// #     fn set_position(&mut self, value: f64);
+// #     fn get_value(&self) -> f64;
+// # }
+// #
+// # struct LinearKnob {
+// #     position: f64,
+// # }
+// #
+// # struct LogarithmicKnob {
+// #     position: f64,
+// # }
+// #
+// # impl KnobControl for LinearKnob {
+// #     fn set_position(&mut self, value: f64) {
+// #         self.position = value;
+// #     }
+// #
+// #     fn get_value(&self) -> f64 {
+// #         self.position
+// #     }
+// # }
+// #
+// # impl KnobControl for LogarithmicKnob {
+// #     fn set_position(&mut self, value: f64) {
+// #         self.position = value;
+// #     }
+// #
+// #     fn get_value(&self) -> f64 {
+// #         (self.position + 1.).log2()
+// #     }
+// # }
+// #
+// # #[enum_dispatch(KnobControl)]
+// # enum Knob {
+// #     LinearKnob,
+// #     LogarithmicKnob,
+// # }
+// #
+// # fn some_existing_knobs() -> (LinearKnob, LogarithmicKnob) {
+// #     (LinearKnob { position: 0.5 }, LogarithmicKnob { position: 0.5 })
+// # }
+// #
+// let (a_linear_knob, a_logarithmic_knob) = some_existing_knobs();
+//
+// let knob = Knob::from(a_linear_knob);
+// let knob = Knob::from(a_logarithmic_knob);
+// ```
 //!
 //! # Performance
 //!
@@ -319,14 +319,23 @@
 //! from the standard library.
 
 #![doc(
-    html_logo_url = "https://gitlab.com/antonok/enum_dispatch/raw/master/enum_dispatch.svg",
-    html_favicon_url = "https://gitlab.com/antonok/enum_dispatch/raw/master/enum_dispatch.svg"
+html_logo_url = "https://gitlab.com/antonok/enum_dispatch/raw/master/enum_dispatch.svg",
+html_favicon_url = "https://gitlab.com/antonok/enum_dispatch/raw/master/enum_dispatch.svg"
 )]
 
 extern crate proc_macro;
 
-use proc_macro2::TokenStream;
+use std::fmt::format;
+use itertools::Itertools;
+use proc_macro2::{Ident, TokenStream};
 use quote::{ToTokens, TokenStreamExt};
+use syn::{Item, ItemEnum, ItemImpl, ItemMod, ItemTrait, parse2, parse_macro_input, Path, PathArguments, TraitItem};
+use syn::parse::Parse;
+use syn::spanned::Spanned;
+use syn::token::{Brace, For};
+use crate::attributed_parser::ParsedItem;
+use crate::enum_dispatch_arg_list::{EnumDispatchArgList, ForItem, ListItem};
+use crate::enum_dispatch_item::EnumDispatchItem;
 
 /// Used for converting a macro input into an ItemTrait or an EnumDispatchItem.
 mod attributed_parser;
@@ -348,7 +357,7 @@ mod supported_generics;
 mod syn_utils;
 
 use crate::expansion::add_enum_impls;
-use crate::supported_generics::{convert_to_supported_generic, num_supported_generics};
+use crate::supported_generics::{convert_to_supported_generic, num_supported_generics, SupportedGenericArg};
 
 /// Annotating a trait or enum definition with an `#[enum_dispatch]` attribute will register it
 /// with the enum_dispatch library, allowing it to be used to generate impl blocks elsewhere.
@@ -364,96 +373,169 @@ use crate::supported_generics::{convert_to_supported_generic, num_supported_gene
 /// can also take the form of a normal tuple-style enum variant with a single field.
 #[proc_macro_attribute]
 pub fn enum_dispatch(attr: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    enum_dispatch2(attr.into(), item.into()).into()
+    match enum_dispatch2(attr.into(), item.into()) {
+        Ok(output) => output.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+fn get_generics(p: &Path) -> syn::Result<(&Ident, Vec<SupportedGenericArg>)> {
+    if p.leading_colon.is_some() || p.segments.len() != 1 {
+        return Err(syn::Error::new(p.span(), "Paths in `#[enum_dispatch(...)]` are not supported."));
+    }
+    let syn::PathSegment {
+        ident: attr_name,
+        arguments: attr_generics
+    } = p.segments.last().unwrap();
+    return match attr_generics.clone() {
+        PathArguments::None => Ok((attr_name, vec![])),
+        PathArguments::AngleBracketed(args) => {
+            assert!(args.colon2_token.is_none());
+            match args.args.iter().map(convert_to_supported_generic).collect::<Result<Vec<_>, _>>() {
+                Ok(v) => Ok((attr_name, v)),
+                Err((unsupported, span)) => {
+                    let error_string = unsupported.to_string();
+                    Err(
+                        syn::Error::new(
+                            span, error_string,
+                        ))
+                }
+            }
+        }
+        PathArguments::Parenthesized(_) => { Err(syn::Error::new(p.span(), "Expected angle bracketed generic arguments, found parenthesized arguments")) }
+    };
 }
 
 /// `proc_macro2::TokenStream` compatible version of the `enum_dispatch` function.
 ///
 /// Using only `proc_macro2::TokenStream` inside the entire crate makes methods unit-testable and
 /// removes the need for conversions everywhere.
-fn enum_dispatch2(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let new_block = attributed_parser::parse_attributed(item.clone()).unwrap();
-    let mut expanded = match &new_block {
-        attributed_parser::ParsedItem::Trait(traitdef) => {
+fn enum_dispatch2(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+    let new_block = attributed_parser::parse_attributed(item.clone()).expect("Could not parse item");
+    let args = parse2::<EnumDispatchArgList>(attr.clone())?;
+
+    let expanded: Result<_, _> = match (&new_block, args) {
+        (ParsedItem::Trait(traitdef), EnumDispatchArgList::List(l)) => {
             cache::cache_trait(traitdef.to_owned());
-            item
+            enum_dispatch2_split(&new_block, item, l)
         }
-        attributed_parser::ParsedItem::EnumDispatch(enumdef) => {
+        (ParsedItem::EnumDispatch(enumdef), EnumDispatchArgList::List(l)) => {
             cache::cache_enum_dispatch(enumdef.clone());
-            syn::ItemEnum::from(enumdef.to_owned())
-                .into_token_stream()
+            let item = syn::ItemEnum::from(enumdef.to_owned())
+                .into_token_stream();
+            enum_dispatch2_split(&new_block, item, l)
         }
+        (ParsedItem::Module(moddef), EnumDispatchArgList::For(f)) => {
+            enum_dispatch2_mod(moddef, f)
+        }
+        (_, EnumDispatchArgList::List(_)) => { Err(syn::Error::new(attr.span(), "List arguments cannot be applied to {args:?}")) }
+        (_, EnumDispatchArgList::For(_)) => { Err(syn::Error::new(attr.span(), "List arguments cannot be applied to {args:?}")) }
     };
+
+    return expanded;
+}
+
+fn enum_dispatch2_mod(module: &ItemMod, arg_list: ForItem) -> syn::Result<TokenStream> {
+    let mut items = module.clone().content.ok_or(syn::Error::new(module.span(), "Module is empty"))?.1;
+
+    // return Ok(items[1].to_token_stream());
+    let trait_defs = arg_list.traits.iter().map(|t| {
+        items.iter().filter_map(
+            |i| {
+                if let Item::Trait(it) = i {
+                    if t.is_ident(&it.ident) {
+                        return Some(it.clone());
+                    }
+                }
+                None
+            }
+        ).at_most_one()
+            .map_err(|mut e| { syn::Error::new(e.next().span(), "Multiple traits found with the same ident") })?
+            .ok_or(syn::Error::new(t.span(), format!("Trait {} not found in module", t.get_ident().unwrap())))
+    }).collect::<syn::Result<Vec<_>>>()?;
+
+    let (enum_index, enumdef) = items.iter().enumerate().filter_map(
+        |(index,i)| {
+            if let Item::Enum(it) = i {
+                if arg_list.item.is_ident(&it.ident) {
+                    return Some((index,it.clone()));
+                }
+            }
+            None
+        }
+    ).at_most_one()
+        .map_err(|mut e| { syn::Error::new(e.next().unwrap().1.span(), "Multiple enums found with the same ident") })?
+        .ok_or(syn::Error::new(arg_list.item.span(), format!("Enum {} not found in module", arg_list.item.get_ident().unwrap())))?;
+
+    items.remove(enum_index);
+    let enumdef = parse2::<EnumDispatchItem>(enumdef.to_token_stream())?;
+    let enumitem = parse2::<ItemEnum>(enumdef.to_token_stream())?;
+    items.insert(enum_index, Item::Enum(enumitem));
+
+    for traitdef in trait_defs {
+        items.extend(add_enum_impls(enumdef.clone(), traitdef.clone()))
+    }
+
+    let content = module.clone().content.map(|(b, _)| (b, items));
+    let module = ItemMod {
+        content,
+        ..module.clone()
+    };
+    Ok(module.to_token_stream())
+}
+
+
+fn enum_dispatch2_split(new_block: &ParsedItem, mut expanded: TokenStream, arg_list: ListItem) -> syn::Result<TokenStream> {
     // If the attributes are non-empty, the new block should be "linked" to the listed definitions.
     // Those definitions may or may not have been cached yet.
     // If one is not cached yet, the link will be pushed into the cache, and impl generation will
     // be deferred until the missing definition is encountered.
     // For now, we assume it is already cached.
-    if !attr.is_empty() {
-        let attr_parse_result = syn::parse2::<enum_dispatch_arg_list::EnumDispatchArgList>(attr)
-            .expect("Could not parse arguments to `#[enum_dispatch(...)]`.")
-            .arg_list
-            .into_iter()
-            .try_for_each(|p| {
-                if p.leading_colon.is_some() || p.segments.len() != 1 {
-                    panic!("Paths in `#[enum_dispatch(...)]` are not supported.");
+    arg_list
+        .into_iter()
+        .try_for_each(|p| {
+            let (attr_name, attr_generics) = get_generics(&p)?;
+            match &new_block {
+                ParsedItem::Trait(traitdef) => {
+                    let supported_generics = num_supported_generics(&traitdef.generics);
+                    cache::defer_link((attr_name, attr_generics.len()), (&traitdef.ident, supported_generics))
                 }
-                let syn::PathSegment {
-                    ident: attr_name,
-                    arguments: attr_generics
-                } = p.segments.last().unwrap();
-                let attr_generics = match attr_generics.clone() {
-                    syn::PathArguments::None => vec![],
-                    syn::PathArguments::AngleBracketed(args) => {
-                        assert!(args.colon2_token.is_none());
-                        match args.args.iter().map(convert_to_supported_generic).collect::<Result<Vec<_>, _>>() {
-                            Ok(v) => v,
-                            Err((unsupported, span)) => {
-                                let error_string = unsupported.to_string();
-                                return Err(quote::quote_spanned! {span=>
-                                    compile_error!(#error_string)
-                                });
-                            }
-                        }
-                    }
-                    syn::PathArguments::Parenthesized(_) => panic!("Expected angle bracketed generic arguments, found parenthesized arguments"),
-                };
-                match &new_block {
-                    attributed_parser::ParsedItem::Trait(traitdef) => {
-                        let supported_generics = num_supported_generics(&traitdef.generics);
-                        cache::defer_link((attr_name, attr_generics.len()), (&traitdef.ident, supported_generics))
-                    }
-                    attributed_parser::ParsedItem::EnumDispatch(enumdef) => {
-                        let supported_generics = num_supported_generics(&enumdef.generics);
-                        cache::defer_link((attr_name, attr_generics.len()), (&enumdef.ident, supported_generics))
-                    }
+                ParsedItem::EnumDispatch(enumdef) => {
+                    let supported_generics = num_supported_generics(&enumdef.generics);
+                    cache::defer_link((attr_name, attr_generics.len()), (&enumdef.ident, supported_generics))
                 }
-                Ok(())
-            });
-        if let Err(e) = attr_parse_result {
-            return e;
+                _ => { panic!("Encountered module in split dispatch generation") }
+            }
+            Ok::<(), syn::Error>(())
         }
-    };
+        )?;
+
     // It would be much simpler to just always retrieve all definitions from the cache. However,
     // span information is not stored in the cache. Saving the newly retrieved definition prevents
     // *all* of the span information from being lost.
-    match new_block {
+    return match new_block {
         attributed_parser::ParsedItem::Trait(traitdef) => {
             let supported_generics = num_supported_generics(&traitdef.generics);
             let additional_enums =
                 cache::fulfilled_by_trait(&traitdef.ident, supported_generics);
             for enumdef in additional_enums {
-                expanded.append_all(add_enum_impls(enumdef, traitdef.clone()));
+                for item in add_enum_impls(enumdef, traitdef.clone()) {
+                    item.to_tokens(&mut expanded);
+                }
             }
+            Ok(expanded)
         }
         attributed_parser::ParsedItem::EnumDispatch(enumdef) => {
             let supported_generics = num_supported_generics(&enumdef.generics);
             let additional_traits =
                 cache::fulfilled_by_enum(&enumdef.ident, supported_generics);
             for traitdef in additional_traits {
-                expanded.append_all(add_enum_impls(enumdef.clone(), traitdef));
+                for item in add_enum_impls(enumdef.clone(), traitdef) {
+                    item.to_tokens(&mut expanded);
+                }
             }
+            Ok(expanded)
         }
-    }
-    expanded
+        _ => { panic!("Encountered module in split dispatch generation") }
+    };
 }
