@@ -443,6 +443,7 @@ fn enum_dispatch2(attr: TokenStream, item: TokenStream) -> TokenStream {
             let additional_enums =
                 cache::fulfilled_by_trait(&traitdef.ident, supported_generics);
             for enumdef in additional_enums {
+                cache::remove_entry(&enumdef.ident);
                 expanded.append_all(add_enum_impls(enumdef, traitdef.clone()));
             }
         }
@@ -451,6 +452,7 @@ fn enum_dispatch2(attr: TokenStream, item: TokenStream) -> TokenStream {
             let additional_traits =
                 cache::fulfilled_by_enum(&enumdef.ident, supported_generics);
             for traitdef in additional_traits {
+                cache::remove_entry(&traitdef.ident);
                 expanded.append_all(add_enum_impls(enumdef.clone(), traitdef));
             }
         }

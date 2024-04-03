@@ -151,3 +151,10 @@ pub fn conversion_impls_def_by_enum(item: &syn::Ident, num_generics: usize) -> b
         .unwrap()
         .contains(&UniqueItemId::new(item.to_string(), num_generics))
 }
+
+pub fn remove_entry(defname: &::proc_macro2::Ident) {
+    DEFERRED_LINKS
+        .lock()
+        .unwrap()
+        .remove_entry(&defname.to_string());
+}
