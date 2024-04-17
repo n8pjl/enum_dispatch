@@ -39,13 +39,36 @@ pub fn add_enum_impls(
     let variants: Vec<&EnumDispatchVariant> = enum_def.variants.iter().collect();
 
     for trait_fn in traitfns {
-        trait_impl.items.push(create_trait_match(
-            trait_fn,
-            &trait_type_generics,
-            &traitname,
-            &enum_def.ident,
-            &variants,
-        ));
+        let is_static_method = match trait_fn.clone() {
+            syn::TraitItem::Method(mut trait_method) => {
+                identify_signature_arguments(&mut trait_method.sig);
+                let trait_args = trait_method.to_owned().sig.inputs;
+                let (method_type, _) = extract_fn_args(trait_args);
+                let is_static = matches!(method_type, MethodType::Static);
+
+                if is_static && trait_method.to_owned().default.is_none() {
+
+                    // Simply ignoring static methods instead of halting compilation makes it possible
+                    // to still implement and use them. Since the Trait has to implement itself,
+                    // it is necessary to provide a default method, which can lead to unclear error messages.
+                    // This makes it a bit more obvious what the cause of the issue is.
+
+                    panic!("Static method {} requires a default implementation", &trait_method.sig.ident.to_string());
+                }
+
+                is_static
+            },
+            _ => false
+        };
+        if !is_static_method {
+            trait_impl.items.push(create_trait_match(
+                trait_fn,
+                &trait_type_generics,
+                &traitname,
+                &enum_def.ident,
+                &variants,
+            ));
+        }
     }
 
     let mut impls = proc_macro2::TokenStream::new();
@@ -232,40 +255,28 @@ fn create_trait_fn_call(
     let mut call = syn::Expr::from(syn::ExprCall {
         attrs: vec![],
         func: {
-            if let MethodType::Static = method_type {
-                // Trait calls can be created when the inner type is known, like this:
-                //
-                // syn::parse_quote! { #type::#trait_method_name }
-                //
-                // However, without a concrete enum to match on, it's impossible to tell
-                // which variant to call.
-                unimplemented!(
-                    "Static methods cannot be enum_dispatched (no self argument to match on)"
-                );
-            } else {
-                let method_name = &trait_method.sig.ident;
-                let trait_turbofish = trait_generics.as_turbofish();
+            let method_name = &trait_method.sig.ident;
+            let trait_turbofish = trait_generics.as_turbofish();
 
-                // It's not allowed to specify late bound lifetime arguments for a function call.
-                // Theoretically, it should be possible to determine from a function signature
-                // whether or not it has late bound lifetime arguments. In practice, it's very
-                // difficult, requiring recursive visitors over all the types in the signature and
-                // inference for elided lifetimes.
-                //
-                // Instead, it appears to be safe to strip out any lifetime arguments altogether.
-                let mut generics_without_lifetimes = trait_method.sig.generics.clone();
-                generics_without_lifetimes.params = generics_without_lifetimes
-                    .params
-                    .into_iter()
-                    .filter(|param| !matches!(param, syn::GenericParam::Lifetime(..)))
-                    .collect();
-                let method_type_generics = generics_without_lifetimes.split_for_impl().1;
-                let method_turbofish = method_type_generics.as_turbofish();
+            // It's not allowed to specify late bound lifetime arguments for a function call.
+            // Theoretically, it should be possible to determine from a function signature
+            // whether or not it has late bound lifetime arguments. In practice, it's very
+            // difficult, requiring recursive visitors over all the types in the signature and
+            // inference for elided lifetimes.
+            //
+            // Instead, it appears to be safe to strip out any lifetime arguments altogether.
+            let mut generics_without_lifetimes = trait_method.sig.generics.clone();
+            generics_without_lifetimes.params = generics_without_lifetimes
+                .params
+                .into_iter()
+                .filter(|param| !matches!(param, syn::GenericParam::Lifetime(..)))
+                .collect();
+            let method_type_generics = generics_without_lifetimes.split_for_impl().1;
+            let method_turbofish = method_type_generics.as_turbofish();
 
-                Box::new(
-                    syn::parse_quote! { #trait_name#trait_turbofish::#method_name#method_turbofish },
-                )
-            }
+            Box::new(
+                syn::parse_quote! { #trait_name#trait_turbofish::#method_name#method_turbofish },
+            )
         },
         paren_token: Default::default(),
         args,
