@@ -363,7 +363,10 @@ use crate::supported_generics::{convert_to_supported_generic, num_supported_gene
 /// current scope. To force individual variants to use a custom name when expanded, each variant
 /// can also take the form of a normal tuple-style enum variant with a single field.
 #[proc_macro_attribute]
-pub fn enum_dispatch(attr: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn enum_dispatch(
+    attr: proc_macro::TokenStream,
+    item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
     enum_dispatch2(attr.into(), item.into()).into()
 }
 
@@ -380,8 +383,7 @@ fn enum_dispatch2(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
         attributed_parser::ParsedItem::EnumDispatch(enumdef) => {
             cache::cache_enum_dispatch(enumdef.clone());
-            syn::ItemEnum::from(enumdef.to_owned())
-                .into_token_stream()
+            enumdef.to_token_stream()
         }
     };
     // If the attributes are non-empty, the new block should be "linked" to the listed definitions.
@@ -400,13 +402,18 @@ fn enum_dispatch2(attr: TokenStream, item: TokenStream) -> TokenStream {
                 }
                 let syn::PathSegment {
                     ident: attr_name,
-                    arguments: attr_generics
+                    arguments: attr_generics,
                 } = p.segments.last().unwrap();
                 let attr_generics = match attr_generics.clone() {
                     syn::PathArguments::None => vec![],
                     syn::PathArguments::AngleBracketed(args) => {
                         assert!(args.colon2_token.is_none());
-                        match args.args.iter().map(convert_to_supported_generic).collect::<Result<Vec<_>, _>>() {
+                        match args
+                            .args
+                            .iter()
+                            .map(convert_to_supported_generic)
+                            .collect::<Result<Vec<_>, _>>()
+                        {
                             Ok(v) => v,
                             Err((unsupported, span)) => {
                                 let error_string = unsupported.to_string();
@@ -416,16 +423,24 @@ fn enum_dispatch2(attr: TokenStream, item: TokenStream) -> TokenStream {
                             }
                         }
                     }
-                    syn::PathArguments::Parenthesized(_) => panic!("Expected angle bracketed generic arguments, found parenthesized arguments"),
+                    syn::PathArguments::Parenthesized(_) => panic!(
+                        "Expected angle bracketed generic arguments, found parenthesized arguments"
+                    ),
                 };
                 match &new_block {
                     attributed_parser::ParsedItem::Trait(traitdef) => {
                         let supported_generics = num_supported_generics(&traitdef.generics);
-                        cache::defer_link((attr_name, attr_generics.len()), (&traitdef.ident, supported_generics))
+                        cache::defer_link(
+                            (attr_name, attr_generics.len()),
+                            (&traitdef.ident, supported_generics),
+                        )
                     }
                     attributed_parser::ParsedItem::EnumDispatch(enumdef) => {
                         let supported_generics = num_supported_generics(&enumdef.generics);
-                        cache::defer_link((attr_name, attr_generics.len()), (&enumdef.ident, supported_generics))
+                        cache::defer_link(
+                            (attr_name, attr_generics.len()),
+                            (&enumdef.ident, supported_generics),
+                        )
                     }
                 }
                 Ok(())
@@ -440,16 +455,14 @@ fn enum_dispatch2(attr: TokenStream, item: TokenStream) -> TokenStream {
     match new_block {
         attributed_parser::ParsedItem::Trait(traitdef) => {
             let supported_generics = num_supported_generics(&traitdef.generics);
-            let additional_enums =
-                cache::fulfilled_by_trait(&traitdef.ident, supported_generics);
+            let additional_enums = cache::fulfilled_by_trait(&traitdef.ident, supported_generics);
             for enumdef in additional_enums {
                 expanded.append_all(add_enum_impls(enumdef, traitdef.clone()));
             }
         }
         attributed_parser::ParsedItem::EnumDispatch(enumdef) => {
             let supported_generics = num_supported_generics(&enumdef.generics);
-            let additional_traits =
-                cache::fulfilled_by_enum(&enumdef.ident, supported_generics);
+            let additional_traits = cache::fulfilled_by_enum(&enumdef.ident, supported_generics);
             for traitdef in additional_traits {
                 expanded.append_all(add_enum_impls(enumdef.clone(), traitdef));
             }
