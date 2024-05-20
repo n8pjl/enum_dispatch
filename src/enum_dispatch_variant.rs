@@ -18,6 +18,7 @@ pub struct EnumDispatchVariant {
     pub ident: syn::Ident,
     pub field_attrs: Vec<syn::Attribute>,
     pub ty: syn::Type,
+    pub discriminant: Option<(syn::Token![=], syn::Expr)>,
 }
 
 /// Allows `EnumDispatchItem`s to be parsed from `String`s or `TokenStream`s.
@@ -29,14 +30,14 @@ impl syn::parse::Parse for EnumDispatchVariant {
             unimplemented!("enum_dispatch variants cannot have braces for arguments");
         } else if input.peek(syn::token::Paren) {
             let input: syn::FieldsUnnamed = input.parse()?;
-            let mut fields = input.unnamed.iter();
+            let mut fields = input.unnamed.into_iter();
             let field_1 = fields
                 .next()
                 .expect("Named enum_dispatch variants must have one unnamed field");
             if fields.next().is_some() {
                 panic!("Named enum_dispatch variants can only have one unnamed field");
             }
-            (field_1.attrs.clone(), field_1.ty.clone())
+            (field_1.attrs, field_1.ty)
         } else {
             (vec![], into_type(ident.clone()))
         };
@@ -45,6 +46,11 @@ impl syn::parse::Parse for EnumDispatchVariant {
             ident,
             field_attrs,
             ty,
+            discriminant: if input.peek(syn::Token![=]) {
+                Some((input.parse()?, input.parse()?))
+            } else {
+                None
+            },
         })
     }
 }
@@ -58,6 +64,10 @@ impl quote::ToTokens for EnumDispatchVariant {
             tokens.append_all(self.field_attrs.iter());
             self.ty.to_tokens(tokens);
         });
+        if let Some((eq, expr)) = &self.discriminant {
+            eq.to_tokens(tokens);
+            expr.to_tokens(tokens);
+        }
     }
 }
 
