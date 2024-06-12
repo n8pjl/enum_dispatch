@@ -81,6 +81,35 @@ That means you can use [`serde`](https://crates.io/crates/serde) or other simila
 `enum_dispatch` will generate a `From` implementation for all inner types to make it easy to instantiate your custom enum.
 In addition, it will generate a `TryInto` implementation for all inner types to make it easy to convert back into the original, unwrapped types.
 
+### disabling `From` and `TryInto` implementations
+
+You can specify disabling `From` and `TryInto` implementations with `skip_from` and `skip_try_into` keywords. It avoids some conflicts when you use same struct in a enum.
+
+```rust
+use enum_dispatch::enum_dispatch;
+
+#[enum_dispatch(MyEnum)]
+trait MyTrait {
+    fn describe(&self) -> String;
+}
+
+impl MyTrait for MyType {
+    fn describe(&self) -> String {
+        "MyType".to_string()
+    }
+}
+
+pub struct MyType;
+
+/// It will skip From and TryInto implementations
+#[enum_dispatch(skip_from, skip_try_into)]
+pub enum MyEnum {
+    A(MyType),
+    B(MyType),
+    C(MyType),
+}
+```
+
 ### attribute support
 
 You can use use `#[cfg(...)]` attributes on `enum_dispatch` variants to conditionally include or exclude their corresponding `enum_dispatch` implementations.

@@ -116,9 +116,13 @@ pub fn fulfilled_by_enum(
     };
     idents
         .iter()
-        .filter_map(
-            |ident_string| TRAIT_DEFS.lock().unwrap().get(ident_string).map(|entry| syn::parse(entry.parse().unwrap()).unwrap())
-        )
+        .filter_map(|ident_string| {
+            TRAIT_DEFS
+                .lock()
+                .unwrap()
+                .get(ident_string)
+                .map(|entry| syn::parse(entry.parse().unwrap()).unwrap())
+        })
         .collect()
 }
 
@@ -138,9 +142,13 @@ pub fn fulfilled_by_trait(
     };
     idents
         .iter()
-        .filter_map(
-            |ident_string| ENUM_DEFS.lock().unwrap().get(ident_string).map(|entry| syn::parse(entry.parse().unwrap()).unwrap())
-        )
+        .filter_map(|ident_string| {
+            ENUM_DEFS
+                .lock()
+                .unwrap()
+                .get(ident_string)
+                .map(|entry| syn::parse(entry.parse().unwrap()).unwrap())
+        })
         .collect()
 }
 

@@ -1,6 +1,7 @@
 //! Provides a utility for generating `enum_dispatch` impl blocks given `EnumDispatchItem` and
 //! `syn::ItemTrait` definitions.
 use crate::cache;
+use crate::skip_implementation::SkipImplementation;
 use quote::{quote, ToTokens};
 use syn::spanned::Spanned;
 
@@ -18,6 +19,7 @@ const FIELDNAME: &str = "inner";
 pub fn add_enum_impls(
     enum_def: EnumDispatchItem,
     traitdef: syn::ItemTrait,
+    skips: &Vec<SkipImplementation>,
 ) -> proc_macro2::TokenStream {
     let traitname = traitdef.ident;
     let traitfns = traitdef.items;
@@ -55,16 +57,23 @@ pub fn add_enum_impls(
         &enum_def.ident,
         enum_def.generics.type_params().count(),
     ) {
-        let from_impls = generate_from_impls(&enum_def.ident, &variants, &enum_def.generics);
-        for from_impl in from_impls.iter() {
-            from_impl.to_tokens(&mut impls);
+        if !skips.contains(&SkipImplementation::SkipFromImplementation) {
+            let from_impls = generate_from_impls(&enum_def.ident, &variants, &enum_def.generics);
+            
+            for from_impl in from_impls.iter() {
+                from_impl.to_tokens(&mut impls);
+            }
         }
 
-        let try_into_impls =
-            generate_try_into_impls(&enum_def.ident, &variants, &trait_impl.generics);
-        for try_into_impl in try_into_impls.iter() {
-            try_into_impl.to_tokens(&mut impls);
+        if !skips.contains(&SkipImplementation::SkipTryIntoImplementation) {
+            let try_into_impls =
+                generate_try_into_impls(&enum_def.ident, &variants, &trait_impl.generics);
+            
+            for try_into_impl in try_into_impls.iter() {
+                try_into_impl.to_tokens(&mut impls);
+            }
         }
+
         cache::cache_enum_conversion_impls_defined(
             enum_def.ident.clone(),
             enum_def.generics.type_params().count(),
