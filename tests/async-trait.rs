@@ -1,5 +1,3 @@
-#![feature(async_fn_in_trait)]
-
 use enum_dispatch::enum_dispatch;
 
 struct A;

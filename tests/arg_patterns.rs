@@ -1,4 +1,3 @@
-#![feature(box_patterns)]
 use enum_dispatch::enum_dispatch;
 
 struct AppState;
@@ -45,7 +44,7 @@ trait AppAction {
     fn format(
         &self,
         (Format::_Raw(max_len) | Format::_Pretty(max_len)): Format,
-        box _f: Box<usize>,
+        _f: Box<usize>,
         0..=255: u8,
         Sentinel::_V: Sentinel,
     ) -> Option<&str> {
