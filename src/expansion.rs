@@ -144,10 +144,10 @@ fn generate_try_into_impls(
 
             let impl_block = quote! {
                 #(#attributes)*
-                impl #impl_generics ::core::convert::TryInto<#variant_type> for #enumname #ty_generics #where_clause {
+                impl #impl_generics ::core::convert::TryFrom<#enumname> for #variant_type #ty_generics #where_clause {
                     type Error = &'static str;
-                    fn try_into(self) -> ::core::result::Result<#variant_type, <Self as ::core::convert::TryInto<#variant_type>>::Error> {
-                        match self {
+                    fn try_from(val: #enumname) -> ::core::result::Result<#variant_type, <Self as ::core::convert::TryFrom<#enumname>>::Error> {
+                        match val {
                             #enumname::#variant_name(v) => {Ok(v)},
                             #(  #other_attributes
                                 #repeated::#other_idents(v) => {
